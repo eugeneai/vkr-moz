@@ -12,6 +12,7 @@
 \RequirePackage{indentfirst}
 \RequirePackage{graphicx}
 \usemintedstyle{tango} % bw
+\RequirePackage{doi}
 
 % \setmainfont{Times New Roman}
 \graphicspath{{pics/}}
@@ -44,6 +45,210 @@
 
 
 ... Необходимо обеспечить доступ к данным из разных ГИС (QGIS, ArcGIS и др.). Современные ГИС позволяют обеспечивать доступ пространственно-распределенным данным, представленным в специальных форматах, данным баз реляционных данных, а также виртуальных географических сервисов.
+
+\subsection{Архитектура системы}
+Перечисленные в предыдущем разделе функции формируют собой элементы архитектуры распределенной системы обработки ГИС-данных (рисунок~\ref{fig:arch}).
+
+\begin{figure}
+\includegraphics[width=0.7\linewidth]{pics\arch-p.svg}
+  \caption{Архитектура распределенной системы} \label{fig:arch}
+\end{figure}
+
+Система состоит из двух основных частей, обычно обозначаемых как “клиент” и “сервер”. В нашем случае они взаимодействуют друг с другом по протоколу HTTP и реализуют взаимодействие через интерфейс “архитектуры REST” (Representation State Protocol). QGIS и ArcGIS - это клиентская часть, она включает также процедуры DSAS, ShRec (распознавание контура), ExpEv (экспертная оценка). QGIS также выступает клиентом для сервера изображений (формат JPG, TIFF, JP2 и др.), получаемых, в том числе, с сервера Google Maps. 
+
+Серверная часть -- набор модулей, запускаемых удаленно из модуля \verb|shore_qgis_module|, т.е. процедурами распознавания управляет полностью   клиентская часть. Управление осуществляется через интерфейс REST, где в качестве объектов выступают сервисы хранения исходных изображений (OCV2 + HDF5), распознавания объектов на изображении (SegAny), анализ масок и изображений с целью получения дополнительных характеристик (FeatEx), сервис выгрузки данных с представлением в JSON (внутри REST). Приведем пример реализации интерфейсов REST для загрузки изображений и управления процессом распознавания.
+
+\subsection{Интерфейс REST загрузки и обработки изображений}
+Задача данного программного объекта - принимать бинарный файл изображения, преобразовать его в матрицы слоев, записать в базу данных на сервере, выдать глобальный идентификатор, при помощи которого далее идентифицируется сохраненные данные изображения.
+\begin{minted}{python}
+img = Service(name='imgstore',
+              path='/sa-1.0/image/{img_name}',
+              description="Image collection")
+
+@img.put()
+def put_image(request):
+    """Принимает бинарные данные картинки,
+    возвращает JSON с UUID сохраненного изображения
+    """
+    name = request.matchdict['img_name']
+
+    imgg, ds = add_image(name, request.body)
+
+    uui = uuidgen()
+    uuis = str(uui)
+    pth = ds.name
+    STORAGE, INGRP, UUIDGRP = storage_begin()
+    if name in UUIDGRP:
+        ouuis = gs(UUIDGRP[name])
+        del UUIDGRP[name]
+        del UUIDGRP[ouuis]
+    # Отображение UUID <-> имя изображения
+    UUIDGRP.create_dataset(name, data=uuis)
+    UUIDGRP.create_dataset(uuis, data=name)
+    STORAGE, INGRP, UUIDGRP = storage_end()
+    return {
+        "error": None,
+        "ok": True,
+        "uuid": uuis,
+        "content": pth,
+        "name": name,
+        "namepath": imgg.name
+    }
+
+def add_image(name, content, replace=True):
+    ”””Добавление изображения в БД”””
+    nparr = np.frombuffer(content, np.uint8)
+    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    # Открытие БД
+    STORAGE, INGRP, UUIDGRP = storage_begin()
+    if name in INGRP:
+        del INGRP[name]
+    imgg = INGRP.create_group(name)
+    ds = imgg.create_dataset('content',
+              data=image, compression="lzf")
+    log.info("Image '{}' loaded".format(name))
+    # Закрытие БД
+    STORAGE, INGRP, UUIDGRP = storage_end()
+    return (imgg, ds)
+\end{minted}
+Загрузка изображения делается при помощи запроса PUT с адресом \texttt{https://<адрес сервера>:6543/sa-1.0/image/<имя картинки>}. В тело запроса PUT помещается содержимое изображения. В качестве результата возвращается JSON-ответ, содержащий в поле “uuid” идентификатор сохраненного изображения. Список сохраненных изображений получается запуском запроса GET к этому же адресу без указания имени изображения. Возвращается JSON со списком отображений UUID-<имя файла изображения>. Полученный идентификатор используется для обозначения изображения, подвергающегося процедуре распознавания:
+
+\begin{minted}{python}
+sactrl = Service(name='segment-any-control',
+                 path='/sa-1.0/sa/{img_uuid}/{cmd}',
+                 description="Functions of SA on a image\
+                              identified by uuid")
+@sactrl.post()
+def start_recognition(request):
+    # Импорт процедур анализа, выполняющихся в
+    #  других процессах
+    from ..tasks import (sa_start, 
+          ANSWERS, rc_set, rc_get, rc_delete,
+          rc_update)
+
+    uuids = request.matchdict['img_uuid']
+    cmd = request.matchdict['cmd']
+    # cmd = 'start'
+
+    STORAGE, INGRP, UUIDGRP = storage_begin()
+    # идентификатор изображения существует?
+    isimg = uuids in UUIDGRP
+    STORAGE, INGRP, UUIDGRP = storage_end()
+
+    rd = {"error": False, "ok": True, "cmd": cmd}
+
+    if cmd == "flush":
+        ANSWERS.flushdb()
+        return rd
+
+    if not isimg:
+        return {
+            "error": "not found",
+            "ok": False,
+            "uuid": uuids,
+            "cmd": cmd,
+            "processuuid": None
+        }
+    # Команда запуска процесса распознавания
+    if cmd == "start":
+        prevrc = rc_get(uuids)
+        if prevrc is not None:
+            return {
+                "error": "already running",
+                "ok": False,
+                "uuid": uuids,
+                "cmd": cmd,
+                "processuuid": prevrc.get("processuuid",
+                                           None),
+                "ready": prevrc.get("ready", False)
+            }
+        del prevrc
+        rc = {"uuid": uuids, "ready": False}
+        rc_set(uuids, rc)
+        arc = sa_start.delay(uuids)
+        puuid = str(arc.id)
+
+        def _u(r):
+            r["processuuid"] = puuid
+
+        rc = rc_update(uuids, _u)
+        print(rc_get(uuids))
+        puuid = rd["processuuid"] = puuid
+    # Команда проверки завершения процесса
+    elif cmd == "status":
+        rd["ready"] = False
+
+        def _a(v, rr):
+            rd["ready"] = v
+            rd["result"] = rr.get("result", None)
+
+        rc = rc_get(uuids, "ready", _a)
+        if rc is None:
+            return {
+                "error": "no process",
+                "ok": False,
+                "uuid": uuids,
+                "cmd": cmd,
+                "ready": None
+            }
+
+        rd["processuuid"] = rc["processuuid"]
+    # Команда завершения процесса и удаления его данных
+    elif cmd == "finalize":
+        rcg = rc_get(uuids)
+        if rcg is None:
+            return {
+                "error": "not running",
+                "ok": False,
+                "uuid": uuids,
+                "cmd": cmd,
+                "ready": None
+            }
+        rc_delete(uuids)
+        rd.update({"ready": rcg["ready"], 
+                   "processuuid": rcg["processuuid"]})
+    # Команда отмены процесса
+    elif cmd == "discard":
+        rcg = rc_get(uuids)
+        if rcg is not None:
+            return {
+                "error": "still running",
+                "description":
+                "cannot stop SA, wait its finishing. \
+                     Use status command.",
+                "ok": False,
+                "uuid": uuids,
+                "cmd": cmd,
+                "ready": None
+            }
+        STORAGE, INGRP, UUIDGRP = storage_begin()
+        name = gs(UUIDGRP[uuids])
+        imgg = INGRP[name]
+        if "masks" in imgg:
+            del imgg["masks"]
+            rc = "removed"
+        else:
+            rc = "no mask"
+        STORAGE, INGRP, UUIDGRP = storage_end()
+        rd.update({
+            "ready": None,
+            "processuuid": None,
+            "description": rc
+        })
+
+    return rd
+\end{minted}
+
+Запуск процесса распознавания осуществляется при помощи запроса POST следующего формата - \texttt{http://<адрес сервера>:6543/sa-1.0/sa/<идентификатор изображения>/<команда>}. Командой выступает ключевое слово - одно из четырех:
+\begin{description}
+  \item[start] -- запуск нового процесса, 
+  \item[status] -- запрос состояния распознавания,
+  \item[finalize] -- завершение исполнившегося процесса,
+  \item[flush] -- отмена процесса.
+\end{description}
+Требующие большие вычислительные ресурсы процессы выполняются в отдельных процессах сервера или на специализированных серверах, снабженных аппаратной поддержкой вычислений (CUDA и ему подобным). Реализация запуска таких задач реализована при помощи библиотеки celery языка программирования Python.
+
 \chapter{Реализация подсистем распределенной вычислительной среды}\label{chap:impl}
 
 
