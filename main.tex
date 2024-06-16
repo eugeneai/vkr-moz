@@ -24,11 +24,8 @@
 %\fontsize{14pt}{16pt}\selectfont
 %\onehalfspacing 
 %\renewcommand{\baselinestretch}{1.5}
-\thispagestyle{empty}
-\clearpage
-
+\setcounter{page}{2}
 \tableofcontents
-
 \chapter*{ВВЕДЕНИЕ}
 \label{chap:intro}
 % TODO: Add contents line
@@ -905,40 +902,40 @@ HDF5 — современная версия формата. Получил пр
 К текущему моменту реализованы не все модули представленной в ВКР архитектуры, поэтому подемонстрируем только работоспособное взаимодействие пользователя, модуля QGIS, сервера обработки изображений. Вычислительный процесс начинается с момента нажатия кнопки <<Запуск>> в интерфейсе модуля QGIS. До этого, как было сказано выше, пользователь должен создать проект, подключить XYZ Tile Layer, например, Google Maps, поставляющий растровые данные спутниковых изобраений. Также необходимо установить интересующий регион при помощи манипуляции с картами и визуальным контролем.
 
 Модуль получает изображения Tile-слоя в виде JPG-изображения и посылвет его на сервер при помощи запроса PUT (для наглядности мы моделируем запрос при помощи программы curl):
-\begin{verbatim}
+\begin{minted}{text}
 $ curl -X PUT http://127.0.0.1:6543/sa-1.0/image/Bykovo.jpg --data-binary "@Bykovo6.JPG"
 {"error": null, "ok": true, "uuid": "a535ef20-2b7b-11ef-9f92-704d7b84fd9f", "content": null, "name": "Bykovo.jpg", "namepath": null}
-\end{verbatim}
+\end{minted}
 
 В результате получен ответ: операция проведена успешно, изображение помещено в хранилище в виде тензора под идентификатором <<a535ef20-2b7b-11ef-9f92-704d7b84fd9f>>. Далее данный идентификатор будетимпользоваться для указания тензора. На запрос сервер отреагировал записью в жкрнале:
 
-\begin{verbatim}
+\begin{minted}{text}
 Starting server in PID 14014.
 2024-05-16 08:49:41,197 INFO  [waitress:485][MainThread] Serving on http://127.0.0.1:6543
 2024-05-16 08:49:41,198 INFO  [waitress:485][MainThread] Serving on http://[::1]:6543
 2024-05-16 08:59:12,365 INFO  [shores_server.views.rest:44][waitress-1] Successfully opened the database
 2024-05-16 08:59:12,427 INFO  [shores_server.views.rest:149][waitress-1] Image 'Bykovo.jpg' loaded
 2024-05-16 08:59:12,453 INFO  [shores_server.views.rest:44][waitress-1] Successfully opened the database
-\end{verbatim}
+\end{minted}
 
 Далее запускаем процесс распознавания объектов, передавая идентификатор тензора и указывая команду \verb|start|:
-\begin{verbatim}
+\begin{minted}{text}
 $ curl -X POST http://127.0.0.1:6543/sa-1.0/sa/a535ef20-2b7b-11ef-9f92-704d7b84fd9f/start
 {"error": false, "ok": true, "cmd": "start", "processuuid": "bc31a029-8cc6-4c9d-803f-7f46d2b10def"}
-\end{verbatim}
+\end{minted}
 Возврашено сообщение о том, что процесс запущен и идентификатор этого процесса.
 
 Журнал REST-модуля дополняется записью
-\begin{verbatim}
+\begin{minted}{text}
 2024-05-16 08:59:12,427 INFO  [shores_server.views.rest:149][waitress-1] Image 'Bykovo.jpg' loaded
 2024-05-16 08:59:12,453 INFO  [shores_server.views.rest:44][waitress-1] Successfully opened the database
 2024-05-16 09:04:18,513 INFO  [shores_server.views.rest:44][waitress-3] Successfully opened the database
 {'uuid': 'a535ef20-2b7b-11ef-9f92-704d7b84fd9f', 'ready': False, 'processuuid': 'bc31a029-8cc6-4c9d-803f-7f46d2b10def'}
-\end{verbatim}
+\end{minted}
   
 Сервер clery реагирует на сообщение
-\begin{verbatim}
--------------- celery@center.irnok.net v5.3.6 (emerald-rush)
+\begin{minted}{text}
+    -------------- celery@center.irnok.net v5.3.6 (emerald-rush)
 --- ***** -----
 -- ******* ---- Linux-6.6.30-1-lts-x86_64-with-glibc2.39 2024-06-16 08:49:41
 - *** --- * ---
@@ -975,25 +972,25 @@ whether broker connection retries are made during startup in Celery 6.0 and abov
 2024-05-16 09:06:09,573 INFO  [shores_server.views.rest:44][MainThread] Successfully opened the database
 2024-05-16 09:06:09,632 INFO  [root:243][MainThread] Found 8 masks
 2024-05-16 09:06:09,891 INFO  [celery.app.trace:131][MainThread] Task shores_server.tasks.sa_start[bc31a029-8cc6-4c9d-803f-7f46d2b10def] succeeded in 111.08417257107794s: None
-\end{verbatim}
+\end{minted}
 Сервер SegmentAnything загрузил модель, передал управление процедуре распознавания, SA распознал 8 объектов, эти объекты помещены в HDF5-хранилище в виде масок.
 
 Маски выгружаются с сервера при помощи следующего запроса:
-\begin{verbatim}
+\begin{minted}{text}
 $ curl -X GET http://127.0.0.1:6543/sa-1.0/mask/a535ef20-2b7b-11ef-9f92-704d7b84fd9f/0
 {"error": false, "ok": true, "result": {"area": 674868, "predicted_iou": 1.0044816732406616, "stability_score": 0.9672640562057495, "bbox": [625, 0, 942, 945], "crop_box": [0, 0, 1568, 979], "point_coords": [[1151.5, 627.171875]], "segmentation": [[0, 0, 0, 0, 0, 
 .....
 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]}}
-\end{verbatim}
+\end{minted}
 
 Сервер реагирует, в его журнал добавляется запись (факт доступа к HDF5-хранилищу):
-\begin{verbatim}
+\begin{minted}{text}
 2024-05-16 09:14:29,200 INFO  [shores_server.views.rest:44][waitress-0] Successfully opened the database
 2024-05-16 09:14:29,208 INFO  [shores_server.views.rest:44][waitress-0] Successfully opened the database 
-\end{verbatim}
+\end{minted}
 
 Далее можно запустить еще один процесс, процесс изъятия значений для характеристик масок и представление их в виде графа знаний, но сначала надо сообщить серверу, что мы завершилии работу с модулем SA:
-\begin{verbatim}
+\begin{minted}{text}
 $ curl -X POST http://127.0.0.1:6543/sa-1.0/sa/a535ef20-2b7b-11ef-9f92-704d7b84fd9f/finalize
 {"error": false, "ok": true, "cmd": "finalize", "ready": true, "processuuid": "bc31a029-8cc6-4c9d-803f-7f46d2b10def"}
 # Запуск feature extraction
@@ -1005,22 +1002,22 @@ $ curl -X POST http://127.0.0.1:6543/sa-1.0/fe/a535ef20-2b7b-11ef-9f92-704d7b84f
 # Завершение задачи feature extraction
 $ curl -X POST http://127.0.0.1:6543/sa-1.0/fe/a535ef20-2b7b-11ef-9f92-704d7b84fd9f/finzlize
 {"error": false, "ok": true, "cmd": "finzlize"}
-\end{verbatim}
+\end{minted}
 
 Журнал Celery:
-\begin{verbatim}
+\begin{minted}{text}
 2024-05-16 09:21:48,141 INFO  [celery.worker.strategy:161][MainThread] Task shores_server.tasks.feature_recognition[1ee19583-ae48-471f-9081-25b840510d3c] received
 2024-05-16 09:21:48,144 INFO  [shores_server.tasks:268][MainThread] Creating task processing masks for image identified by UUID a535ef20-2b7b-11ef-9f92-704d7b84fd9f
 2024-05-16 09:21:48,144 INFO  [shores_server.views.rest:44][MainThread] Successfully opened the database
 2024-05-16 09:21:48,228 INFO  [root:300][MainThread] Starting FE on (979, 1568, 3) shape image and 8 its masks
-\end{verbatim}
+\end{minted}
 В результате формируется граф знаний, приведенный в Приложении~А.
 
 Заключительный тест - это тест SPARQL-запроса \verb|select * where { ?s ?p ?o }| к этому графу знаний:
-\begin{verbatim}
+\begin{minted}{text}
 curl -X POST http://localhost:6543/sa-1.0/sparql/a535ef20-2b7b-11ef-9f92-704d7b84fd9f/query/ --data-urlencode 'query=select * where { ?s ?p ?o }' -H "Accept: text/turtle" -H 'Content-Type: application/x-www-form-urlencoded'
 {"results": {"bindings": [{"s": {"type": "uri", "value": "https://irnok.net/ontology/shores/a/1.0/a535ef20-2b7b-11ef-9f92-704d7b84fd9f"}, "p": {"type": "uri", "value": "https://irnok.net/ontology/shores/t/1.0/mask"}, "o": {"type": "uri", "value": "https://irnok.net/ontology/shores/a/1.0/a535ef20-2b7b-11ef-9f92-704d7b84fd9f-0-mask"}}, {"s": {"type": "uri", "value": "https://irnok.net/ontology/shores/a/1.0/a535ef20-2b7b-11ef-9f92-704d7b84fd9f-1-segmentation-bbox"}, "p": {"type": "uri", "value": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"}, "o": {"type": "uri", "value": "https://irnok.net/ontology/shores/t/1.0/Bbox"}}, {"s": {"type": "uri", "value": "https://irnok.net/ontology/shores/a/1.0/a535ef20-2b7b-11ef-9f92-704d7b84fd9f-3-segmentation-bbox"}, "p": {"type": "uri", "value": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"}, "o": {"type": "uri", "value": "https://irnok.net/ontology/shores/t/1.0/Bbox"}}, {"s": {"type": "uri", "value": "https://irnok.net/ontology/shores/a/1.0/a535ef20-2b7b-11ef-9f92-704d7b84fd9f-3-segmentation-bbox"}, "p": {"type": "uri", "value": "https://irnok.net/ontology/shores/t/1.0/left"}, "o": {"type": "literal", "value": "1296", "datatype": "http://www.w3.org/2001/XMLSchema#integer"}}, {"s": {"type": "uri", "value": "https://irnok.net/ontology/shores/a/1.0/a535ef20-2b7b-11ef-9f92-704d7b84fd9f-7-segmentation-crop-box"}, "p": {"type": "uri", "value": "https://irnok.net/ontology/shores/t/1.0/left"}, "o": {"type": "literal", "value": "0", "datatype": "http://www.w3.org/2001/XMLSchema#integer"}}, {"s": {"type": "uri", "value": "https://irnok.net/ontology/shores/a/1.0/a535ef20-2b7b-11ef-9f92-704d7b84fd9f-4-segmentation"}, .....
-\end{verbatim}
+\end{minted}
 В результате возвращается ответ в форме JSON-LD, содержащий все тройки графа знаний.
 
 Исходный код сервера находится по адресу \url{https://github.com/eugeneai/shores-server}
