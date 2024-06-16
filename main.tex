@@ -1013,7 +1013,7 @@ $ curl -X POST http://127.0.0.1:6543/sa-1.0/fe/a535ef20-2b7b-11ef-9f92-704d7b84f
 2024-05-16 09:21:48,144 INFO  [shores_server.views.rest:44][MainThread] Successfully opened the database
 2024-05-16 09:21:48,228 INFO  [root:300][MainThread] Starting FE on (979, 1568, 3) shape image and 8 its masks
 \end{verbatim}
-В результате формируется граф знаний, приведенный в Приложении~\ref{apl:kg}
+В результате формируется граф знаний, приведенный в Приложении~А.
 
 Заключительный тест - это тест SPARQL-запроса \verb|select * where { ?s ?p ?o }| к этому графу знаний:
 \begin{verbatim}
@@ -1021,6 +1021,8 @@ curl -X POST http://localhost:6543/sa-1.0/sparql/a535ef20-2b7b-11ef-9f92-704d7b8
 {"results": {"bindings": [{"s": {"type": "uri", "value": "https://irnok.net/ontology/shores/a/1.0/a535ef20-2b7b-11ef-9f92-704d7b84fd9f"}, "p": {"type": "uri", "value": "https://irnok.net/ontology/shores/t/1.0/mask"}, "o": {"type": "uri", "value": "https://irnok.net/ontology/shores/a/1.0/a535ef20-2b7b-11ef-9f92-704d7b84fd9f-0-mask"}}, {"s": {"type": "uri", "value": "https://irnok.net/ontology/shores/a/1.0/a535ef20-2b7b-11ef-9f92-704d7b84fd9f-1-segmentation-bbox"}, "p": {"type": "uri", "value": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"}, "o": {"type": "uri", "value": "https://irnok.net/ontology/shores/t/1.0/Bbox"}}, {"s": {"type": "uri", "value": "https://irnok.net/ontology/shores/a/1.0/a535ef20-2b7b-11ef-9f92-704d7b84fd9f-3-segmentation-bbox"}, "p": {"type": "uri", "value": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"}, "o": {"type": "uri", "value": "https://irnok.net/ontology/shores/t/1.0/Bbox"}}, {"s": {"type": "uri", "value": "https://irnok.net/ontology/shores/a/1.0/a535ef20-2b7b-11ef-9f92-704d7b84fd9f-3-segmentation-bbox"}, "p": {"type": "uri", "value": "https://irnok.net/ontology/shores/t/1.0/left"}, "o": {"type": "literal", "value": "1296", "datatype": "http://www.w3.org/2001/XMLSchema#integer"}}, {"s": {"type": "uri", "value": "https://irnok.net/ontology/shores/a/1.0/a535ef20-2b7b-11ef-9f92-704d7b84fd9f-7-segmentation-crop-box"}, "p": {"type": "uri", "value": "https://irnok.net/ontology/shores/t/1.0/left"}, "o": {"type": "literal", "value": "0", "datatype": "http://www.w3.org/2001/XMLSchema#integer"}}, {"s": {"type": "uri", "value": "https://irnok.net/ontology/shores/a/1.0/a535ef20-2b7b-11ef-9f92-704d7b84fd9f-4-segmentation"}, .....
 \end{verbatim}
 В результате возвращается ответ в форме JSON-LD, содержащий все тройки графа знаний.
+
+Исходный код сервера находится по адресу \url{https://github.com/eugeneai/shores-server}
 
 \chapter*{ЗАКЛЮЧЕНИЕ}
 
@@ -1095,7 +1097,7 @@ ISSN 1071-5819,
 \bibitem{samart} Сделай SAM: Segment Anything Model в задачах компьютерного зрения. -- \url{https://habr.com/ru/companies/sberdevices/articles/757606/} (дата доступа: 15.05.2024)
 \end{thebibliography}
 \appendix
-\chapter{Граф знвний, полученный анализом масок изображения, формат turtle}
+\chapter*{ПРИЛОЖЕНИЕ А Граф знаний, полученный анализом масок изображения, формат turtle}
 \begin{minted}{turtle}
   @prefix foaf: <http://xmlns.com/foaf/0.1/> .
   @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
