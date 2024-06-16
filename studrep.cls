@@ -26,8 +26,8 @@
 
 % \ExplSyntaxOn
 
-%\LoadClass[fontsize=12pt]{scrreprt}
-\LoadClass{scrreprt}
+\LoadClass[fontsize=14pt]{scrreprt}
+%\LoadClass{scrreprt}
 \RequirePackage{silence}
 \WarningFilter{biblatex}{Patching footnotes failed}
 
