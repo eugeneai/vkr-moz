@@ -258,6 +258,7 @@ DSAS использует пять операций, в частности, ог
 
 \begin{table}
   \caption{Атрибуты шейп-файла shorelines для Digital Shoreline Analysis System (DSAS) version 5.0}\label{tbl:struct}
+  \centering
   \begin{tabular}{|l|l|l|}
     \hline 
     Field name &	Data type &	Attribute addition\\\hline 
@@ -329,14 +330,14 @@ DSAS использует пять операций, в частности, ог
 
   \begin{figure}[htp]
 	\centering
-	\includegraphics[width=0.7\linewidth]{pics/image6.png}
+	\includegraphics[width=\linewidth]{pics/image6.png}
     \caption{Скриншот экрана с созданной онтологией в OntoGraph}
     \label{fig:}
   \end{figure}
 
   \begin{figure}[htp]
 	\centering
-	\includegraphics[width=0.7\linewidth]{pics/image3.png}
+	\includegraphics[width=\linewidth]{pics/image3.png}
     \caption{Графическое изображение созданной онтологии, построенная в программе xdot}
     \label{fig:xdot}
   \end{figure}
@@ -865,7 +866,9 @@ def start_recognition(request):
 
 \section{Исполнение задач с долгим времением вычисления}
 
+На этапе предварительного ознакомления с библиотекой SegmentAnything было установлено, что среднее время выполнения распознавания объектов на изображении, взятом с Google-сервера - 3.5 минуты на персоналном компьютере, оборудованом ОС Linux, видеокартой NVIDIA 1030 и использование библиотеки \verb|tensorflow| с поддержкой CUDA. Если операцию напосредственно выполнять из интерфейса пользователя, то работа с ГИС QGIS для пользователя будет некомфортной -- он должен будет ждать результата, но при этом не будет возможности выполнять какие-либо другие операции. Для решения этой проблемы и бвл разработан сервер хранения и обработки изображений. Пользователи задают задачи <<длительного выполнения>>, задачи ставятся в очередь на сервере, по завершению их исполнения модуль QGIS запрашивает результат и помещает его в проект.
 
+Реализация очереди выполнена при помощи отдельного объекта REST и процесса - сервера очередей \verb|celery| (сельдерей). Работа очереди обеспечивается еще одним дополнительным сервисом -- \verb|RabbitMQ| -- <<Rabbit>> message queue, ранее установленным в сети ИДСТУ как раз для поддержки очередей. RabbitMQ позволяет синхронизировать вычислительные процессы на основе организации передачи сообщений, а также распределять нагрузку между вычислительными узлами, что дает возможность разрабатыват масштабируемые ИВИ. 
 
 \section{Хранение изображений}
 
@@ -897,6 +900,127 @@ HDF5 — современная версия формата. Получил пр
 Доступ к данным изображения, масок, атрибутам и т.п. реализован также в интерфейсе REST. В частности, маски выгружаются по порядковым номерам и идентификаторам соответствующего изображения.
 
 \section{Тестирование}
+
+К текущему моменту реализованы не все модули представленной в ВКР архитектуры, поэтому подемонстрируем только работоспособное взаимодействие пользователя, модуля QGIS, сервера обработки изображений. Вычислительный процесс начинается с момента нажатия кнопки <<Запуск>> в интерфейсе модуля QGIS. До этого, как было сказано выше, пользователь должен создать проект, подключить XYZ Tile Layer, например, Google Maps, поставляющий растровые данные спутниковых изобраений. Также необходимо установить интересующий регион при помощи манипуляции с картами и визуальным контролем.
+
+Модуль получает изображения Tile-слоя в виде JPG-изображения и посылвет его на сервер при помощи запроса PUT (для наглядности мы моделируем запрос при помощи программы curl):
+\begin{verbatim}
+$ curl -X PUT http://127.0.0.1:6543/sa-1.0/image/Bykovo.jpg --data-binary "@Bykovo6.JPG"
+{"error": null, "ok": true, "uuid": "a535ef20-2b7b-11ef-9f92-704d7b84fd9f", "content": null, "name": "Bykovo.jpg", "namepath": null}
+\end{verbatim}
+
+В результате получен ответ: операция проведена успешно, изображение помещено в хранилище в виде тензора под идентификатором <<a535ef20-2b7b-11ef-9f92-704d7b84fd9f>>. Далее данный идентификатор будетимпользоваться для указания тензора. На запрос сервер отреагировал записью в жкрнале:
+
+\begin{verbatim}
+Starting server in PID 14014.
+2024-05-16 08:49:41,197 INFO  [waitress:485][MainThread] Serving on http://127.0.0.1:6543
+2024-05-16 08:49:41,198 INFO  [waitress:485][MainThread] Serving on http://[::1]:6543
+2024-05-16 08:59:12,365 INFO  [shores_server.views.rest:44][waitress-1] Successfully opened the database
+2024-05-16 08:59:12,427 INFO  [shores_server.views.rest:149][waitress-1] Image 'Bykovo.jpg' loaded
+2024-05-16 08:59:12,453 INFO  [shores_server.views.rest:44][waitress-1] Successfully opened the database
+\end{verbatim}
+
+Далее запускаем процесс распознавания объектов, передавая идентификатор тензора и указывая команду \verb|start|:
+\begin{verbatim}
+$ curl -X POST http://127.0.0.1:6543/sa-1.0/sa/a535ef20-2b7b-11ef-9f92-704d7b84fd9f/start
+{"error": false, "ok": true, "cmd": "start", "processuuid": "bc31a029-8cc6-4c9d-803f-7f46d2b10def"}
+\end{verbatim}
+Возврашено сообщение о том, что процесс запущен и идентификатор этого процесса.
+
+Журнал REST-модуля дополняется записью
+\begin{verbatim}
+2024-05-16 08:59:12,427 INFO  [shores_server.views.rest:149][waitress-1] Image 'Bykovo.jpg' loaded
+2024-05-16 08:59:12,453 INFO  [shores_server.views.rest:44][waitress-1] Successfully opened the database
+2024-05-16 09:04:18,513 INFO  [shores_server.views.rest:44][waitress-3] Successfully opened the database
+{'uuid': 'a535ef20-2b7b-11ef-9f92-704d7b84fd9f', 'ready': False, 'processuuid': 'bc31a029-8cc6-4c9d-803f-7f46d2b10def'}
+\end{verbatim}
+  
+Сервер clery реагирует на сообщение
+\begin{verbatim}
+-------------- celery@center.irnok.net v5.3.6 (emerald-rush)
+--- ***** -----
+-- ******* ---- Linux-6.6.30-1-lts-x86_64-with-glibc2.39 2024-06-16 08:49:41
+- *** --- * ---
+- ** ---------- [config]
+- ** ---------- .> app:         __main__:0x7bc3a2b065a0
+- ** ---------- .> transport:   amqp://shores:**@192.168.191.131:5672/shores
+- ** ---------- .> results:     sqlite:///results.db
+- *** --- * --- .> concurrency: 4 (prefork)
+-- ******* ---- .> task events: OFF (enable -E to monitor tasks in this worker)
+--- ***** -----
+  -------------- [queues]
+                .> celery           exchange=celery(direct) key=celery
+
+
+2024-05-16 08:49:43,119 WARNI [py.warnings:110][MainThread] /home/eugeneai/.pyenv/versions/3.12.2/envs/shores-server/lib/2024-05-16 08:49:43,354 INFO  [celery.worker.consumer.connection:22][MainThread] Connected to amqp://shores:**@192.168.191.131:5672/shores
+2024-05-16 08:49:43,358 WARNI [py.warnings:110][MainThread] /home/eugeneai/.pyenv/versions/3.12.2/envs/shores-server/lib/python3.12/site-packages/celery/worker/consumer/consumer.py:507: CPendingDeprecationWarning: The broker_connection_retry configuration setting will no longer determine
+whether broker connection retries are made during startup in Celery 6.0 and above.
+2024-05-16 08:49:43,435 INFO  [celery.worker.consumer.mingle:40][MainThread] mingle: searching for neighbors
+2024-05-16 08:49:44,745 INFO  [celery.worker.consumer.mingle:49][MainThread] mingle: all alone
+2024-05-16 08:49:45,092 INFO  [celery.apps.worker:175][MainThread] celery@center.irnok.net ready.
+...
+2024-05-16 09:04:18,804 INFO  [celery.worker.strategy:161][MainThread] Task shores_server.tasks.sa_start[bc31a029-8cc6-4c9d-803f-7f46d2b10def] received
+2024-05-16 09:04:18,812 INFO  [shores_server.tasks:187][MainThread] creating task processing image identified by UUID a535ef20-2b7b-11ef-9f92-704d7b84fd9f
+2024-05-16 09:04:18,819 INFO  [shores_server.views.rest:44][MainThread] Successfully opened the database
+2024-05-16 09:04:18,830 INFO  [root:191][MainThread] Image name is 'Bykovo.jpg'
+2024-05-16 09:04:18,896 INFO  [root:195][MainThread] Image shape is (979, 1568, 3)
+2024-05-16 09:04:18,897 INFO  [root:203][MainThread] New recognition starting.
+2024-05-16 09:04:18,898 INFO  [root:205][MainThread] Torch engine is cpu.
+2024-05-16 09:04:18,898 INFO  [root:92][MainThread] SAM starts loading
+2024-05-16 09:04:25,912 INFO  [root:102][MainThread] SAM loaded 'vit_b'
+2024-05-16 09:04:25,912 INFO  [root:115][MainThread] Start Recognition/Segmentation
+2024-05-16 09:06:09,571 INFO  [root:117][MainThread] Finish Recognition/Segmentation
+2024-05-16 09:06:09,571 INFO  [root:216][MainThread] Recognition finished, saving into storage.
+2024-05-16 09:06:09,573 INFO  [shores_server.views.rest:44][MainThread] Successfully opened the database
+2024-05-16 09:06:09,632 INFO  [root:243][MainThread] Found 8 masks
+2024-05-16 09:06:09,891 INFO  [celery.app.trace:131][MainThread] Task shores_server.tasks.sa_start[bc31a029-8cc6-4c9d-803f-7f46d2b10def] succeeded in 111.08417257107794s: None
+\end{verbatim}
+Сервер SegmentAnything загрузил модель, передал управление процедуре распознавания, SA распознал 8 объектов, эти объекты помещены в HDF5-хранилище в виде масок.
+
+Маски выгружаются с сервера при помощи следующего запроса:
+\begin{verbatim}
+$ curl -X GET http://127.0.0.1:6543/sa-1.0/mask/a535ef20-2b7b-11ef-9f92-704d7b84fd9f/0
+{"error": false, "ok": true, "result": {"area": 674868, "predicted_iou": 1.0044816732406616, "stability_score": 0.9672640562057495, "bbox": [625, 0, 942, 945], "crop_box": [0, 0, 1568, 979], "point_coords": [[1151.5, 627.171875]], "segmentation": [[0, 0, 0, 0, 0, 
+.....
+0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]}}
+\end{verbatim}
+
+Сервер реагирует, в его журнал добавляется запись (факт доступа к HDF5-хранилищу):
+\begin{verbatim}
+2024-05-16 09:14:29,200 INFO  [shores_server.views.rest:44][waitress-0] Successfully opened the database
+2024-05-16 09:14:29,208 INFO  [shores_server.views.rest:44][waitress-0] Successfully opened the database 
+\end{verbatim}
+
+Далее можно запустить еще один процесс, процесс изъятия значений для характеристик масок и представление их в виде графа знаний, но сначала надо сообщить серверу, что мы завершилии работу с модулем SA:
+\begin{verbatim}
+$ curl -X POST http://127.0.0.1:6543/sa-1.0/sa/a535ef20-2b7b-11ef-9f92-704d7b84fd9f/finalize
+{"error": false, "ok": true, "cmd": "finalize", "ready": true, "processuuid": "bc31a029-8cc6-4c9d-803f-7f46d2b10def"}
+# Запуск feature extraction
+$ curl -X POST http://127.0.0.1:6543/sa-1.0/fe/a535ef20-2b7b-11ef-9f92-704d7b84fd9f/start
+{"error": false, "ok": true, "cmd": "start", "processuuid": "1ee19583-ae48-471f-9081-25b840510d3c"}
+# Запрос статуса операции - завершен
+$ curl -X POST http://127.0.0.1:6543/sa-1.0/fe/a535ef20-2b7b-11ef-9f92-704d7b84fd9f/status
+{"error": false, "ok": true, "cmd": "status", "ready": true, "result": true, "processuuid": "1ee19583-ae48-471f-9081-25b840510d3c"}
+# Завершение задачи feature extraction
+$ curl -X POST http://127.0.0.1:6543/sa-1.0/fe/a535ef20-2b7b-11ef-9f92-704d7b84fd9f/finzlize
+{"error": false, "ok": true, "cmd": "finzlize"}
+\end{verbatim}
+
+Журнал Celery:
+\begin{verbatim}
+2024-05-16 09:21:48,141 INFO  [celery.worker.strategy:161][MainThread] Task shores_server.tasks.feature_recognition[1ee19583-ae48-471f-9081-25b840510d3c] received
+2024-05-16 09:21:48,144 INFO  [shores_server.tasks:268][MainThread] Creating task processing masks for image identified by UUID a535ef20-2b7b-11ef-9f92-704d7b84fd9f
+2024-05-16 09:21:48,144 INFO  [shores_server.views.rest:44][MainThread] Successfully opened the database
+2024-05-16 09:21:48,228 INFO  [root:300][MainThread] Starting FE on (979, 1568, 3) shape image and 8 its masks
+\end{verbatim}
+В результате формируется граф знаний, приведенный в Приложении~\ref{apl:kg}
+
+Заключительный тест - это тест SPARQL-запроса \verb|select * where { ?s ?p ?o }| к этому графу знаний:
+\begin{verbatim}
+curl -X POST http://localhost:6543/sa-1.0/sparql/a535ef20-2b7b-11ef-9f92-704d7b84fd9f/query/ --data-urlencode 'query=select * where { ?s ?p ?o }' -H "Accept: text/turtle" -H 'Content-Type: application/x-www-form-urlencoded'
+{"results": {"bindings": [{"s": {"type": "uri", "value": "https://irnok.net/ontology/shores/a/1.0/a535ef20-2b7b-11ef-9f92-704d7b84fd9f"}, "p": {"type": "uri", "value": "https://irnok.net/ontology/shores/t/1.0/mask"}, "o": {"type": "uri", "value": "https://irnok.net/ontology/shores/a/1.0/a535ef20-2b7b-11ef-9f92-704d7b84fd9f-0-mask"}}, {"s": {"type": "uri", "value": "https://irnok.net/ontology/shores/a/1.0/a535ef20-2b7b-11ef-9f92-704d7b84fd9f-1-segmentation-bbox"}, "p": {"type": "uri", "value": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"}, "o": {"type": "uri", "value": "https://irnok.net/ontology/shores/t/1.0/Bbox"}}, {"s": {"type": "uri", "value": "https://irnok.net/ontology/shores/a/1.0/a535ef20-2b7b-11ef-9f92-704d7b84fd9f-3-segmentation-bbox"}, "p": {"type": "uri", "value": "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"}, "o": {"type": "uri", "value": "https://irnok.net/ontology/shores/t/1.0/Bbox"}}, {"s": {"type": "uri", "value": "https://irnok.net/ontology/shores/a/1.0/a535ef20-2b7b-11ef-9f92-704d7b84fd9f-3-segmentation-bbox"}, "p": {"type": "uri", "value": "https://irnok.net/ontology/shores/t/1.0/left"}, "o": {"type": "literal", "value": "1296", "datatype": "http://www.w3.org/2001/XMLSchema#integer"}}, {"s": {"type": "uri", "value": "https://irnok.net/ontology/shores/a/1.0/a535ef20-2b7b-11ef-9f92-704d7b84fd9f-7-segmentation-crop-box"}, "p": {"type": "uri", "value": "https://irnok.net/ontology/shores/t/1.0/left"}, "o": {"type": "literal", "value": "0", "datatype": "http://www.w3.org/2001/XMLSchema#integer"}}, {"s": {"type": "uri", "value": "https://irnok.net/ontology/shores/a/1.0/a535ef20-2b7b-11ef-9f92-704d7b84fd9f-4-segmentation"}, .....
+\end{verbatim}
+В результате возвращается ответ в форме JSON-LD, содержащий все тройки графа знаний.
 
 \chapter*{ЗАКЛЮЧЕНИЕ}
 
@@ -970,5 +1094,263 @@ ISSN 1071-5819,
 \bibitem{umbel} UMBEL Ontology\url{https://lov.linkeddata.es/dataset/lov/vocabs/umbel} (дата доступа: 15.05.2024)
 \bibitem{samart} Сделай SAM: Segment Anything Model в задачах компьютерного зрения. -- \url{https://habr.com/ru/companies/sberdevices/articles/757606/} (дата доступа: 15.05.2024)
 \end{thebibliography}
-
+\appendix
+\chapter{Граф знвний, полученный анализом масок изображения, формат turtle}
+\begin{minted}{turtle}
+  @prefix foaf: <http://xmlns.com/foaf/0.1/> .
+  @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+  @prefix schema: <https://schema.org/> .
+  @prefix sd: <https://irnok.net/ontology/shores/a/1.0/> .
+  @prefix shape: <https://irnok.net/ontology/shores/t/1.0/> .
+  @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f a foaf:Image ;
+      rdfs:label "Bykovo.jpg"@en ;
+      shape:mask sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-0-mask,
+          sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-1-mask,
+          sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-2-mask,
+          sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-3-mask,
+          sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-4-mask,
+          sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-5-mask,
+          sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-6-mask,
+          sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-7-mask ;
+      shape:shape sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-shape .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-0-mask a shape:Mask ;
+      shape:area 674868 ;
+      shape:predicted_iou 1.004482e+00 ;
+      shape:segmentation sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-0-segmentation ;
+      shape:stability_score 9.672641e-01 ;
+      schema:sku 0 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-0-segmentation a shape:Segmentation ;
+      shape:bbox sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-0-segmentation-bbox ;
+      shape:crop-box sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-0-segmentation-crop-box ;
+      shape:point-coords sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-0-segmentation-point-coords ;
+      shape:shape sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-shape .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-0-segmentation-bbox a shape:Bbox ;
+      shape:height 945 ;
+      shape:left 625 ;
+      shape:top 0 ;
+      shape:width 942 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-0-segmentation-crop-box a shape:Crop-box ;
+      shape:height 979 ;
+      shape:left 0 ;
+      shape:top 0 ;
+      shape:width 1568 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-0-segmentation-point-coords a shape:Point-coords ;
+      shape:x 1.1515e+03 ;
+      shape:y 6.271719e+02 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-1-mask a shape:Mask ;
+      shape:area 528490 ;
+      shape:predicted_iou 9.925082e-01 ;
+      shape:segmentation sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-1-segmentation ;
+      shape:stability_score 9.562669e-01 ;
+      schema:sku 1 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-1-segmentation a shape:Segmentation ;
+      shape:bbox sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-1-segmentation-bbox ;
+      shape:crop-box sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-1-segmentation-crop-box ;
+      shape:point-coords sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-1-segmentation-point-coords ;
+      shape:shape sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-shape .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-1-segmentation-bbox a shape:Bbox ;
+      shape:height 966 ;
+      shape:left 0 ;
+      shape:top 5 ;
+      shape:width 745 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-1-segmentation-crop-box a shape:Crop-box ;
+      shape:height 979 ;
+      shape:left 0 ;
+      shape:top 0 ;
+      shape:width 1568 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-1-segmentation-point-coords a shape:Point-coords ;
+      shape:x 2.695e+02 ;
+      shape:y 7.648438e+01 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-2-mask a shape:Mask ;
+      shape:area 21521 ;
+      shape:predicted_iou 9.818562e-01 ;
+      shape:segmentation sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-2-segmentation ;
+      shape:stability_score 9.713498e-01 ;
+      schema:sku 2 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-2-segmentation a shape:Segmentation ;
+      shape:bbox sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-2-segmentation-bbox ;
+      shape:crop-box sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-2-segmentation-crop-box ;
+      shape:point-coords sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-2-segmentation-point-coords ;
+      shape:shape sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-shape .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-2-segmentation-bbox a shape:Bbox ;
+      shape:height 64 ;
+      shape:left 0 ;
+      shape:top 4 ;
+      shape:width 342 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-2-segmentation-crop-box a shape:Crop-box ;
+      shape:height 979 ;
+      shape:left 0 ;
+      shape:top 0 ;
+      shape:width 1568 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-2-segmentation-point-coords a shape:Point-coords ;
+      shape:x 1.225e+02 ;
+      shape:y 1.529688e+01 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-3-mask a shape:Mask ;
+      shape:area 35433 ;
+      shape:predicted_iou 9.700564e-01 ;
+      shape:segmentation sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-3-segmentation ;
+      shape:stability_score 9.679427e-01 ;
+      schema:sku 3 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-3-segmentation a shape:Segmentation ;
+      shape:bbox sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-3-segmentation-bbox ;
+      shape:crop-box sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-3-segmentation-crop-box ;
+      shape:point-coords sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-3-segmentation-point-coords ;
+      shape:shape sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-shape .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-3-segmentation-bbox a shape:Bbox ;
+      shape:height 133 ;
+      shape:left 1296 ;
+      shape:top 807 ;
+      shape:width 268 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-3-segmentation-crop-box a shape:Crop-box ;
+      shape:height 979 ;
+      shape:left 0 ;
+      shape:top 0 ;
+      shape:width 1568 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-3-segmentation-point-coords a shape:Point-coords ;
+      shape:x 1.4945e+03 ;
+      shape:y 8.719219e+02 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-4-mask a shape:Mask ;
+      shape:area 2009 ;
+      shape:predicted_iou 9.498836e-01 ;
+      shape:segmentation sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-4-segmentation ;
+      shape:stability_score 9.720588e-01 ;
+      schema:sku 4 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-4-segmentation a shape:Segmentation ;
+      shape:bbox sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-4-segmentation-bbox ;
+      shape:crop-box sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-4-segmentation-crop-box ;
+      shape:point-coords sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-4-segmentation-point-coords ;
+      shape:shape sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-shape .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-4-segmentation-bbox a shape:Bbox ;
+      shape:height 51 ;
+      shape:left 1501 ;
+      shape:top 95 ;
+      shape:width 49 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-4-segmentation-crop-box a shape:Crop-box ;
+      shape:height 979 ;
+      shape:left 0 ;
+      shape:top 0 ;
+      shape:width 1568 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-4-segmentation-point-coords a shape:Point-coords ;
+      shape:x 1.5435e+03 ;
+      shape:y 1.070781e+02 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-5-mask a shape:Mask ;
+      shape:area 4866 ;
+      shape:predicted_iou 9.46198e-01 ;
+      shape:segmentation sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-5-segmentation ;
+      shape:stability_score 9.688007e-01 ;
+      schema:sku 5 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-5-segmentation a shape:Segmentation ;
+      shape:bbox sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-5-segmentation-bbox ;
+      shape:crop-box sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-5-segmentation-crop-box ;
+      shape:point-coords sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-5-segmentation-point-coords ;
+      shape:shape sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-shape .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-5-segmentation-bbox a shape:Bbox ;
+      shape:height 82 ;
+      shape:left 1487 ;
+      shape:top 6 ;
+      shape:width 80 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-5-segmentation-crop-box a shape:Crop-box ;
+      shape:height 979 ;
+      shape:left 0 ;
+      shape:top 0 ;
+      shape:width 1568 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-5-segmentation-point-coords a shape:Point-coords ;
+      shape:x 1.5435e+03 ;
+      shape:y 7.648438e+01 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-6-mask a shape:Mask ;
+      shape:area 3749 ;
+      shape:predicted_iou 9.353169e-01 ;
+      shape:segmentation sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-6-segmentation ;
+      shape:stability_score 9.622642e-01 ;
+      schema:sku 6 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-6-segmentation a shape:Segmentation ;
+      shape:bbox sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-6-segmentation-bbox ;
+      shape:crop-box sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-6-segmentation-crop-box ;
+      shape:point-coords sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-6-segmentation-point-coords ;
+      shape:shape sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-shape .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-6-segmentation-bbox a shape:Bbox ;
+      shape:height 98 ;
+      shape:left 608 ;
+      shape:top 234 ;
+      shape:width 48 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-6-segmentation-crop-box a shape:Crop-box ;
+      shape:height 979 ;
+      shape:left 0 ;
+      shape:top 0 ;
+      shape:width 1568 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-6-segmentation-point-coords a shape:Point-coords ;
+      shape:x 6.125e+02 ;
+      shape:y 2.600469e+02 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-7-mask a shape:Mask ;
+      shape:area 936 ;
+      shape:predicted_iou 9.145088e-01 ;
+      shape:segmentation sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-7-segmentation ;
+      shape:stability_score 9.767932e-01 ;
+      schema:sku 7 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-7-segmentation a shape:Segmentation ;
+      shape:bbox sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-7-segmentation-bbox ;
+      shape:crop-box sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-7-segmentation-crop-box ;
+      shape:point-coords sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-7-segmentation-point-coords ;
+      shape:shape sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-shape .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-7-segmentation-bbox a shape:Bbox ;
+      shape:height 48 ;
+      shape:left 1296 ;
+      shape:top 863 ;
+      shape:width 29 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-7-segmentation-crop-box a shape:Crop-box ;
+      shape:height 979 ;
+      shape:left 0 ;
+      shape:top 0 ;
+      shape:width 1568 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-7-segmentation-point-coords a shape:Point-coords ;
+      shape:x 1.2985e+03 ;
+      shape:y 8.719219e+02 .
+  
+  sd:a535ef20-2b7b-11ef-9f92-704d7b84fd9f-shape a shape:Shape ;
+      shape:colors 3 ;
+      shape:cols 1568 ;
+      shape:rows 979 . 
+\end{minted}
 \end{document}
